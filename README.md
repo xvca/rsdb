@@ -12,12 +12,21 @@ cargo run
 cargo test
 ```
 
+## current status
+
+currently implements a basic in-memory database with a single hardcoded table schema:
+- **table**: rows with (id: u32, username: string, email: string)
+- **operations**: insert and select (no where clauses yet)
+- **storage**: page-based in-memory storage (4kb pages, up to 100 pages)
+
+the schema is intentionally fixed to focus on learning storage engine internals. schema management (CREATE TABLE, multiple tables, dynamic types) will be added later as extensions.
+
 ## progress
 
 ### tutorial parts (1-14)
 - [x] part 1: repl
 - [x] part 2: sql compiler and vm
-- [ ] part 3: in-memory table with insert/select
+- [x] part 3: in-memory table with insert/select
 - [ ] part 4: testing infrastructure
 - [ ] part 5: persistence to disk
 - [ ] part 6: cursor abstraction
@@ -30,7 +39,7 @@ cargo test
 - [ ] part 13: updating parent node after split
 - [ ] part 14: splitting internal nodes
 
-### beyond the tutorial
+### extension
 - [ ] schema support (CREATE TABLE)
 - [ ] multiple tables
 - [ ] data types beyond fixed strings
