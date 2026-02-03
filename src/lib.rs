@@ -1,3 +1,6 @@
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+
 pub const COLUMN_USERNAME_SIZE: usize = 32;
 pub const COLUMN_EMAIL_SIZE: usize = 255;
 pub const PAGE_SIZE: usize = 4096;
@@ -21,31 +24,91 @@ pub const ROW_SIZE: usize = ID_SIZE + USERNAME_SIZE + EMAIL_SIZE;
 pub const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 pub const TABLE_MAX_ROWS: usize = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
-pub struct Table {
-    pub num_rows: usize,
+pub struct Pager {
+    file: File,
+    file_length: u64,
     pages: Vec<Option<Box<[u8; PAGE_SIZE]>>>,
 }
 
-impl Table {
-    pub fn new() -> Self {
-        Table {
-            num_rows: 0,
+impl Pager {
+    fn new(filename: &str) -> std::io::Result<Self> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(filename)?;
+
+        let file_length = file.metadata()?.len();
+
+        Ok(Pager {
+            file,
+            file_length,
             pages: vec![None; TABLE_MAX_PAGES],
-        }
+        })
     }
 
-    pub fn row_slot(&mut self, row_num: usize) -> &mut [u8] {
+    pub fn get_page(&mut self, page_num: usize) -> std::io::Result<&mut [u8; PAGE_SIZE]> {
+        if self.pages[page_num].is_none() {
+            let mut page = Box::new([0; PAGE_SIZE]);
+
+            if (page_num as u64) < (self.file_length / PAGE_SIZE as u64) {
+                self.file
+                    .seek(SeekFrom::Start((page_num * PAGE_SIZE) as u64))?;
+                self.file.read_exact(&mut page[..])?;
+            }
+            self.pages[page_num] = Some(page);
+        }
+
+        Ok(self.pages[page_num].as_mut().unwrap())
+    }
+
+    fn flush(&mut self, page_num: usize) -> std::io::Result<()> {
+        if let Some(page) = &self.pages[page_num] {
+            self.file
+                .seek(SeekFrom::Start((page_num * PAGE_SIZE) as u64))?;
+            self.file.write_all(&page[..])?;
+        }
+        Ok(())
+    }
+}
+
+pub struct Table {
+    pub num_rows: usize,
+    pager: Pager,
+}
+
+impl Table {
+    pub fn row_slot(&mut self, row_num: usize) -> std::io::Result<&mut [u8]> {
         let page_num = row_num / ROWS_PER_PAGE;
         let row_offset = row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
 
-        if self.pages[page_num].is_none() {
-            self.pages[page_num] = Some(Box::new([0; PAGE_SIZE]));
-        }
-
-        let page = self.pages[page_num].as_mut().unwrap();
-        &mut page[byte_offset..byte_offset + ROW_SIZE]
+        let page = self.pager.get_page(page_num)?;
+        Ok(&mut page[byte_offset..byte_offset + ROW_SIZE])
     }
+}
+
+pub fn db_open(filename: &str) -> std::io::Result<Table> {
+    let pager = Pager::new(filename)?;
+    let num_rows = pager.file_length as usize / ROW_SIZE;
+
+    Ok(Table { num_rows, pager })
+}
+
+pub fn db_close(table: &mut Table) -> std::io::Result<()> {
+    let num_full_pages = table.num_rows / ROWS_PER_PAGE;
+
+    for i in 0..num_full_pages {
+        table.pager.flush(i)?;
+    }
+
+    let additional_rows = table.num_rows % ROWS_PER_PAGE;
+    if additional_rows > 0 {
+        table.pager.flush(num_full_pages)?;
+    }
+
+    Ok(())
 }
 
 pub fn serialize_row(row: &Row, destination: &mut [u8]) {
@@ -119,7 +182,7 @@ pub enum MetaCommandResult {
 
 pub fn do_meta_command(input: &str) -> MetaCommandResult {
     if input == ".exit" {
-        std::process::exit(0);
+        MetaCommandResult::Success
     } else {
         MetaCommandResult::UnrecognizedCommand
     }
@@ -162,28 +225,30 @@ pub fn prepare_statement(input: &str) -> PrepareResult {
     }
 }
 
-pub fn execute_statement(statement: &Statement, table: &mut Table) -> ExecuteResult {
+pub fn execute_statement(statement: &Statement, table: &mut Table) -> std::io::Result<ExecuteResult> {
     match statement.statement_type {
         StatementType::Insert => {
             if table.num_rows >= TABLE_MAX_ROWS {
                 println!("Error: Table full.");
-                return ExecuteResult::Success;
+                return Ok(ExecuteResult::Success);
             }
 
             let row = statement.row_to_insert.as_ref().unwrap();
-            let slot = table.row_slot(table.num_rows);
+            let slot = table.row_slot(table.num_rows)?;
             serialize_row(row, slot);
             table.num_rows += 1;
         }
         StatementType::Select => {
             for i in 0..table.num_rows {
-                let slot = table.row_slot(i);
+                let slot = table.row_slot(i)?;
                 let row = deserialize_row(slot);
-                println!("({}, {}, {})", row.id, row.username, row.email);
+                if row.id != 0 {
+                    println!("({}, {}, {})", row.id, row.username, row.email);
+                }
             }
         }
     }
-    ExecuteResult::Success
+    Ok(ExecuteResult::Success)
 }
 
 #[cfg(test)]
@@ -191,18 +256,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn create_row_serde() {
-        let mut table = Table::new();
-
+    fn test_row_serialization() {
         let row = Row {
             id: 1,
             username: "john".to_string(),
             email: "john@test.com".to_string(),
         };
 
-        let slot = table.row_slot(0);
-        serialize_row(&row, slot);
-        let deser_row = deserialize_row(slot);
+        let mut buffer = [0u8; ROW_SIZE];
+        serialize_row(&row, &mut buffer);
+        let deser_row = deserialize_row(&buffer);
 
         assert_eq!(row, deser_row);
     }
