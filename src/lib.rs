@@ -89,6 +89,44 @@ impl Table {
     }
 }
 
+pub struct Cursor<'a> {
+    pub table: &'a mut Table,
+    pub row_num: usize,
+    pub end_of_table: bool,
+}
+
+impl<'a> Cursor<'a> {
+    pub fn table_start(table: &'a mut Table) -> Self {
+        let end_of_table = table.num_rows == 0;
+        Cursor {
+            table,
+            row_num: 0,
+            end_of_table,
+        }
+    }
+
+    pub fn table_end(table: &'a mut Table) -> Self {
+        let row_num = table.num_rows;
+        Cursor {
+            table,
+            row_num,
+            end_of_table: true,
+        }
+    }
+
+    pub fn value(&mut self) -> std::io::Result<&mut [u8]> {
+        self.table.row_slot(self.row_num)
+    }
+
+    pub fn advance(&mut self) {
+        self.row_num += 1;
+
+        if self.row_num >= self.table.num_rows {
+            self.end_of_table = true;
+        }
+    }
+}
+
 pub fn db_open(filename: &str) -> std::io::Result<Table> {
     let pager = Pager::new(filename)?;
     let num_rows = pager.file_length as usize / ROW_SIZE;
@@ -225,7 +263,10 @@ pub fn prepare_statement(input: &str) -> PrepareResult {
     }
 }
 
-pub fn execute_statement(statement: &Statement, table: &mut Table) -> std::io::Result<ExecuteResult> {
+pub fn execute_statement(
+    statement: &Statement,
+    table: &mut Table,
+) -> std::io::Result<ExecuteResult> {
     match statement.statement_type {
         StatementType::Insert => {
             if table.num_rows >= TABLE_MAX_ROWS {
@@ -234,17 +275,20 @@ pub fn execute_statement(statement: &Statement, table: &mut Table) -> std::io::R
             }
 
             let row = statement.row_to_insert.as_ref().unwrap();
-            let slot = table.row_slot(table.num_rows)?;
+            let mut cursor = Cursor::table_end(table);
+            let slot = cursor.value()?;
             serialize_row(row, slot);
-            table.num_rows += 1;
+            cursor.table.num_rows += 1;
         }
         StatementType::Select => {
-            for i in 0..table.num_rows {
-                let slot = table.row_slot(i)?;
+            let mut cursor = Cursor::table_start(table);
+            while !cursor.end_of_table {
+                let slot = cursor.value()?;
                 let row = deserialize_row(slot);
                 if row.id != 0 {
                     println!("({}, {}, {})", row.id, row.username, row.email);
                 }
+                cursor.advance();
             }
         }
     }
