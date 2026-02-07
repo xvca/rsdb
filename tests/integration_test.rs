@@ -1,5 +1,5 @@
-use std::process::{Command, Stdio};
 use std::io::Write;
+use std::process::{Command, Stdio};
 
 fn run_script(commands: Vec<&str>) -> Vec<String> {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -58,7 +58,7 @@ fn test_insert_and_retrieve_row() {
 #[test]
 fn test_table_full_error() {
     let mut commands = vec![];
-    for i in 1..=1401 {
+    for i in 1..=14 {
         commands.push(format!("insert {} user{} person{}@example.com", i, i, i));
     }
     commands.push(".exit".to_string());
@@ -66,7 +66,7 @@ fn test_table_full_error() {
     let script: Vec<&str> = commands.iter().map(|s| s.as_str()).collect();
     let result = run_script(script);
 
-    assert!(result.iter().any(|line| line.contains("Table full")));
+    assert!(result.iter().any(|line| line.contains("leaf node full")));
 }
 
 #[test]
@@ -92,25 +92,31 @@ fn test_string_too_long() {
         ".exit",
     ]);
 
-    assert!(result.iter().any(|line| line.contains("string is too long")));
+    assert!(
+        result
+            .iter()
+            .any(|line| line.contains("string is too long"))
+    );
 
     let long_email = "a".repeat(256);
-    let result = run_script(vec![
-        &format!("insert 1 user {}", long_email),
-        ".exit",
-    ]);
+    let result = run_script(vec![&format!("insert 1 user {}", long_email), ".exit"]);
 
-    assert!(result.iter().any(|line| line.contains("string is too long")));
+    assert!(
+        result
+            .iter()
+            .any(|line| line.contains("string is too long"))
+    );
 }
 
 #[test]
 fn test_negative_id() {
-    let result = run_script(vec![
-        "insert -1 user test@example.com",
-        ".exit",
-    ]);
+    let result = run_script(vec!["insert -1 user test@example.com", ".exit"]);
 
-    assert!(result.iter().any(|line| line.contains("syntax error") || line.contains("could not parse")));
+    assert!(
+        result
+            .iter()
+            .any(|line| line.contains("syntax error") || line.contains("could not parse"))
+    );
 }
 
 #[test]
@@ -166,10 +172,7 @@ fn test_persistence_multiple_sessions() {
     );
 
     // session 2: insert 1 more row
-    run_script_with_file(
-        vec!["insert 3 user3 user3@example.com", ".exit"],
-        &db_file,
-    );
+    run_script_with_file(vec!["insert 3 user3 user3@example.com", ".exit"], &db_file);
 
     // session 3: verify all 3 rows exist
     let result = run_script_with_file(vec!["select", ".exit"], &db_file);

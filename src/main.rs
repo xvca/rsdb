@@ -1,5 +1,5 @@
 use rsdb::{MetaCommandResult, PrepareResult};
-use rsdb::{db_close, db_open, do_meta_command, execute_statement, prepare_statement};
+use rsdb::{db_close, db_open, do_meta_command, execute_statement, prepare_statement, print_btree, print_constants};
 use std::env;
 use std::io::{self, Write};
 
@@ -32,7 +32,17 @@ fn main() {
 
         if input.starts_with('.') {
             match do_meta_command(input) {
-                MetaCommandResult::Success => break,
+                MetaCommandResult::Exit => break,
+                MetaCommandResult::PrintConstants => {
+                    print_constants();
+                    continue;
+                }
+                MetaCommandResult::PrintBtree => {
+                    if let Err(e) = print_btree(&mut table) {
+                        println!("error: {}", e);
+                    }
+                    continue;
+                }
                 MetaCommandResult::UnrecognizedCommand => {
                     println!("unrecognized command: {}", input);
                     continue;

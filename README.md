@@ -16,9 +16,12 @@ cargo test
 
 single hardcoded table with fixed schema (id, username, email):
 - insert and select operations
-- page-based storage (4kb pages, 100 page max)
+- b-tree storage: structured leaf nodes with header + cells (key + serialized row)
+- cursor abstraction for table traversal
+- page-based i/o (4kb pages), current limit: 13 rows per leaf node
 - data persists to disk, survives restarts
 - validates string lengths (32 for username, 255 for email)
+- meta commands: .exit, .constants, .btree
 - error handling via Result types
 - lib/main split for testing
 
@@ -32,9 +35,9 @@ the schema is intentionally fixed to focus on learning storage engine internals.
 - [x] part 3: in-memory table with insert/select
 - [x] part 4: testing infrastructure and input validation
 - [x] part 5: persistence to disk
-- [ ] part 6: cursor abstraction
-- [ ] part 7: b-tree leaf node format
-- [ ] part 8: b-tree leaf node binary search
+- [x] part 6: cursor abstraction
+- [x] part 7: introduction to b-trees (conceptual)
+- [x] part 8: b-tree leaf node format
 - [ ] part 9: binary search and duplicate keys
 - [ ] part 10: splitting a leaf node
 - [ ] part 11: recursively searching b-tree
